@@ -23,19 +23,19 @@ function checkForNewBlock() {
 			let effort = (blockDetails.shares / blockDetails.diff);
 			
 			/*
-				green    0.5 >= effort > 0
-				yellow   1   >= effort > 0.5
-				red	            effort > 1
+				green = effort > 0
+				yellow (unusued) = effort > 90
+				red	= effort > 100
 			*/
 
 			let effortRGB = [0, 255, 0]
-			if (effort > 0.5) { effortRGB[0] = 255; }
+			//if (effort > 0.9) { effortRGB[0] = 255; }
 			if (effort > 1) { effortRGB[1] = 0; }
 			
 			embed = new Discord.MessageEmbed()
 				.setTitle('New Block Found!')
 				.setURL(config.BLOCK_EXPLORER+blockDetails.height)
-				.setColor(effortRGB) //make it green/yellow/red based on effort
+				.setColor(effortRGB) //make it green/red based on effort
 				// .setColor(0xff6600) //make it monero orange
 				// .setDescription('Informative text to add at start')
 				.addField('Hash', blockDetails.hash, false)
