@@ -28,9 +28,9 @@ function checkForNewBlock() {
 				red	= effort > 100
 			*/
 
-			let effortRGB = [0, 255, 0]
-			//if (effort > 0.9) { effortRGB[0] = 255; }
-			if (effort > 1) { effortRGB[1] = 0; }
+			let effortRGB = [0, 255, 0] //green
+			if (effort > 1) { effortRGB[0] = 255; } //yellow
+			if (effort > 1) { effortRGB[1] = 0; } //red
 			
 			embed = new Discord.MessageEmbed()
 				.setTitle('New Block Found!')
