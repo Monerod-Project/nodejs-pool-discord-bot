@@ -1,23 +1,21 @@
 {
-	"BOT_TOKEN": "YOUR BOT TOKEN",
-	"CHANNEL_ID": "YOUR CHANNELs DISCORD ID NOT THE NAME",
-	"API_DOMAIN": "YOUR POOLs API DOMAIN",
+	"BOT_TOKEN": "YOUR_TOKEN",
+	"CHANNEL_ID": "YOUR_BLOCK_NOTIFY_CHANNEL_ID",
+	"WELCOME_CHANNEL_ID": "YOUR_WELCOME_CHANNEL_ID",
+	"API_DOMAIN": "YOUR_POOL_DOMAIN",
 	"BLOCK_EXPLORER": "https://xmrchain.net/block/",
-	"LAST_BLOCK_HASH": "HASH OF THE LAST BLOCK YOUR POOL FOUND",
-	"CHECK_INTERVAL": "60000",
+	"LAST_BLOCK_HASH": "",
+	"CHECK_INTERVAL": 60000,
 	"PREFIX": "!",
 	"DB": {
-		"connection" : {
-		    "connectionLimit" : "10",
-		    "host" : "example.org",
-		    "user" : "bob",
-		    "password" : "secret",
-		    "database" : "my_db"
-		},
-		"structure" : {
-			"table" : "table_name",
-			"address": "xmr_address_column", // needs to be 95 chars long
-			"discord": "discord_column" // needs to be 18 chars long
-		}
+		"host": "example.org",
+		"user": "bob",
+		"password": "secret",
+		"database": "my_db",
+		"waitForConnections": true,
+		"connectionLimit": 10,
+		"table": "table_name",
+		"address_col": "xmr_address_column",
+		"discord_col": "discord_column"
 	}
 }

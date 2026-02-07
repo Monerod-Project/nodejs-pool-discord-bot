@@ -1,57 +1,35 @@
-const affirmations = require("../affirmations.json");
-const api = require('../lib/api.js');
+const { EmbedBuilder } = require('discord.js');
 
-/*  Formatting code by Salman A
-	 from: https://stackoverflow.com/a/9462382 
-	License: CC BY-SA 4.0  https://creativecommons.org/licenses/by-sa/4.0/
-*/
-function nFormatter(num, digits) {
-  const lookup = [
-    { value: 1, symbol: "" },
-    { value: 1e3, symbol: "k" },
-    { value: 1e6, symbol: "M" },
-    { value: 1e9, symbol: "G" },
-    { value: 1e12, symbol: "T" },
-    { value: 1e15, symbol: "P" },
-    { value: 1e18, symbol: "E" }
-  ];
-  const rx = /\.0+$|(\.[0-9]*[1-9])0+$/;
-  var item = lookup.slice().reverse().find(function(item) {
-    return num >= item.value;
-  });
-  return item ? (num / item.value).toFixed(digits).replace(rx, "$1") + ' ' + item.symbol : "0";
+function formatHash(h) {
+    if (!h) return "0 H/s";
+    const units = ["H/s", "KH/s", "MH/s", "GH/s"];
+    let i = 0;
+    while (h >= 1000 && i < units.length - 1) { h /= 1000; i++; }
+    return `${h.toFixed(2)} ${units[i]}`;
 }
 
 module.exports = {
-	name: 'hashrate',
-	description: 'Get Your Hashrate',
-	execute(message, args, db) {
-		db.getUserAddress(message.author.id, function(error, xmraddr) {
-			if (error) {
-				message.channel.send(message.author.toString()+' Sorry! There was an error getting your hashrate.');
-			} else {
-				if ((args.length == 1) && (args[0] == 'average')) {
+    name: 'hashrate',
+    async execute(message, args, pool) {
+        const addr = await pool.getUserAddress(message.author.id);
+        if (!addr) return message.reply("Use `!link` in DMs first.");
 
-					// Get average hashrate
-					api.getAvgHashrate(xmraddr, function(hashrate) {
-						msg = message.author.toString()+' is averaging '+
-						nFormatter(hashrate, 2)+'H/s in the last 24 hours. '+
-						affirmations[Math.floor(Math.random()*affirmations.length)]+'!';
-						message.channel.send(msg);
-					});
+        const stats = await pool.getMinerStats(addr);
+        const chart = await pool.getMinerChart(addr);
 
-				} else {
+        // Calculate 24h average from chart
+        const dayAgo = Date.now() - 86400000;
+        const recentPoints = chart.global.filter(p => p.ts >= dayAgo);
+        const avg = recentPoints.reduce((a, b) => a + b.hs, 0) / (recentPoints.length || 1);
 
-					// Get current hashrate
-					api.getHashrate(xmraddr, function(hashrate) {
-						msg = message.author.toString()+' is crunching '+
-						nFormatter(hashrate, 2)+'H/s. '+
-						affirmations[Math.floor(Math.random()*affirmations.length)]+'!';
-						message.channel.send(msg);
-					});
-
-				}
-			}
-		});
-	}
+        const embed = new EmbedBuilder()
+            .setTitle('Your Miner Performance')
+            .setColor(0xff6600)
+            .addFields(
+                { name: 'Current', value: formatHash(stats.global.hash), inline: true },
+                { name: '24h Average', value: formatHash(avg), inline: true },
+                { name: 'Total Hashes', value: stats.global.totalHash.toLocaleString(), inline: false }
+            );
+        message.channel.send({ embeds: [embed] });
+    }
 };

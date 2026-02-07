@@ -1,78 +1,101 @@
-const config = require("./config.json");
+const { Client, GatewayIntentBits, Collection, EmbedBuilder, Partials } = require('discord.js');
 const fs = require('fs');
-const Discord = require("discord.js");
-const client = new Discord.Client();
-client.commands = new Discord.Collection();
+const config = require('./config.json');
+const pool = require('./lib/pool.js');
 
-const db = require('./lib/db.js');
-const api = require('./lib/api.js');
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.GuildMembers // Required for the join event
+    ],
+    partials: [Partials.Channel, Partials.Message, Partials.User]
+});
 
-// From discord.js Documentation to add commands from individual files
+client.commands = new Collection();
 const commandFiles = fs.readdirSync('./commands').filter(file => file.endsWith('.js'));
+
 for (const file of commandFiles) {
-	const command = require(`./commands/${file}`);
-	// set a new item in the Collection
-	// with the key as the command name and the value as the exported module
-	client.commands.set(command.name, command);
+    const command = require(`./commands/${file}`);
+    client.commands.set(command.name, command);
 }
 
-function checkForNewBlock() {
-	api.checkForNewBlock(function(newBlock, blockDetails) {
-		if (newBlock) {
-			const channel = client.channels.cache.get(config.CHANNEL_ID);
-			let effort = (blockDetails.shares / blockDetails.diff);
-			
-			/*
-				green = effort > 0
-				yellow (unusued) = effort > 90
-				red	= effort > 100
-			*/
+/**
+ * Event: New Member Joins
+ */
+client.on('guildMemberAdd', async (member) => {
+    try {
+        const channel = await member.guild.channels.fetch(config.WELCOME_CHANNEL_ID);
+        if (channel) {
+            const welcomeMsg = await channel.send(`Welcome to the pool, ${member}! Glad to have you here. 🚀`);
+            await welcomeMsg.react('👋');
+        }
+    } catch (err) {
+        console.error('Welcome Event Error:', err.message);
+    }
+});
 
-			let effortRGB = [0, 255, 0] //green
-			if (effort > 1) { effortRGB[0] = 255; } //yellow
-			if (effort > 1) { effortRGB[1] = 0; } //red
-			
-			embed = new Discord.MessageEmbed()
-				.setTitle('New Block Found!')
-				.setURL(config.BLOCK_EXPLORER+blockDetails.height)
-				.setColor(effortRGB) //make it green/red based on effort
-				// .setColor(0xff6600) //make it monero orange
-				// .setDescription('Informative text to add at start')
-				.addField('Hash', blockDetails.hash, false)
-				.addField('Diff', blockDetails.diff, true)
-				.addField('Height', blockDetails.height, true)
-				.addField('Value', blockDetails.value, true)
-				.addField('Effort', (effort * 100).toFixed(2) + '%', true);
-		
-			channel.send(embed);
+/**
+ * Block Monitor (Logic from cron.js)
+ */
+async function blockMonitor() {
+    try {
+        const blocks = await pool.getPoolBlocks();
+        if (!blocks || blocks.length === 0) return;
 
-			config.LAST_BLOCK_HASH = blockDetails.hash;
-			
-		}
-		setTimeout(checkForNewBlock, config.CHECK_INTERVAL);	
-	});
+        const latestBlock = blocks[0];
+        if (latestBlock.hash !== config.LAST_BLOCK_HASH) {
+            const channel = await client.channels.fetch(config.CHANNEL_ID);
+            if (channel) {
+                const effort = (latestBlock.shares / latestBlock.diff) * 100;
+                const color = effort <= 100 ? 0x00ff00 : 0xff0000;
+
+                const embed = new EmbedBuilder()
+                    .setTitle('🚀 New Block Found!')
+                    .setURL(`${config.BLOCK_EXPLORER}${latestBlock.height}`)
+                    .setColor(color)
+                    .addFields(
+                        { name: 'Height', value: latestBlock.height.toString(), inline: true },
+                        { name: 'Effort', value: `${effort.toFixed(2)}%`, inline: true },
+                        { name: 'Value', value: `XMR ${latestBlock.value.toFixed(4)}`, inline: true },
+                        { name: 'Hash', value: `\`${latestBlock.hash}\`` }
+                    )
+                    .setTimestamp();
+
+                await channel.send({ embeds: [embed] });
+
+                config.LAST_BLOCK_HASH = latestBlock.hash;
+                fs.writeFileSync('./config.json', JSON.stringify(config, null, '\t'));
+            }
+        }
+    } catch (err) {
+        console.error('Monitor Error:', err.message);
+    }
 }
+
+client.once('ready', () => {
+    console.log(`Logged in as ${client.user.tag}`);
+    // Start block monitor loop
+    setInterval(blockMonitor, config.CHECK_INTERVAL);
+});
+
+client.on('messageCreate', async (message) => {
+    if (!message.content.startsWith(config.PREFIX) || message.author.bot) return;
+
+    const args = message.content.slice(config.PREFIX.length).trim().split(/ +/);
+    const commandName = args.shift().toLowerCase();
+    const command = client.commands.get(commandName);
+
+    if (!command) return;
+
+    try {
+        await command.execute(message, args, pool);
+    } catch (error) {
+        console.error(error);
+        message.reply('An error occurred executing that command.');
+    }
+});
 
 client.login(config.BOT_TOKEN);
-
-client.on('ready', () => {
-	//	console.log(`Logged in as ${client.user.tag}!`); // uncomment to debug
-	checkForNewBlock();
-});
-
-// From discord.js Documentation to add commands from individual files
-client.on('message', message => {
-	if (!message.content.startsWith(config.PREFIX) || message.author.bot) return;
-
-	const args = message.content.slice(config.PREFIX.length).trim().split(/ +/);
-	const command = args.shift().toLowerCase();
-
-	if (!client.commands.has(command)) return;
-
-	try {
-		client.commands.get(command).execute(message, args, db);
-	} catch (error) {
-		console.error(error);
-		message.reply('there was an error trying to execute that command!');
-	}
-});
