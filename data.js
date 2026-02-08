@@ -21,14 +21,16 @@ const api = axios.create({
 
 // Helper: Format Hashrate
 function formatHash(h) {
-    if (!h || isNaN(h)) return "0 H/s";
+    let hash = Number(h);
+    if (!hash || isNaN(hash)) return "0 H/s";
+
     const units = ["H/s", "KH/s", "MH/s", "GH/s"];
     let i = 0;
-    while (h >= 1000 && i < units.length - 1) {
-        h /= 1000;
+    while (hash >= 1000 && i < units.length - 1) {
+        hash /= 1000;
         i++;
     }
-    return `${h.toFixed(2)} ${units[i]}`;
+    return `${hash.toFixed(2)} ${units[i]}`;
 }
 
 module.exports = {
@@ -47,7 +49,6 @@ module.exports = {
     },
 
     async linkAddress(userId, address) {
-        // Upsert logic (Insert or Update)
         const query = `INSERT INTO ${config.DB.table} (${config.DB.discord_col}, ${config.DB.address_col})
                        VALUES (?, ?)
                        ON DUPLICATE KEY UPDATE ${config.DB.address_col} = ?`;

@@ -28,7 +28,7 @@ async function blockMonitor() {
             if (channel) {
                 // Calculate effort (Shares / Difficulty)
                 const effort = (latestBlock.shares / latestBlock.diff) * 100;
-                const color = effort <= 100 ? 0x00ff00 : 0xff0000; // Green if lucky, Red if unlucky
+                const color = effort <= 100 ? 0x00ff00 : 0xff0000;
 
                 const embed = new EmbedBuilder()
                     .setTitle('🚀 New Block Found!')
@@ -44,7 +44,6 @@ async function blockMonitor() {
 
                 await channel.send({ embeds: [embed] });
 
-                // Update config file
                 config.LAST_BLOCK_HASH = latestBlock.hash;
                 fs.writeFileSync('./config.json', JSON.stringify(config, null, 4));
             }
@@ -107,7 +106,6 @@ client.on('messageCreate', async (message) => {
                     return message.author.send("⚠️ Please use `!link` here in DMs to keep your address private.");
                 }
                 const addr = args[0];
-                // Basic XMR address validation (starts with 4 or 8)
                 if (!addr || !/^[48][0-9a-zA-Z]{94,105}$/.test(addr)) {
                     return message.reply("❌ Please provide a valid Monero address.");
                 }
@@ -132,11 +130,10 @@ client.on('messageCreate', async (message) => {
 
                 if (!stats || !stats.global) return message.reply("⚠️ No miner data found. Check if your miner is active.");
 
-                // Calculate 24h Average from chart data
+                // Calculate 24h Average
                 let avgHash = 0;
                 if (chart && chart.global && chart.global.length > 0) {
-                    const oneDayAgo = (Date.now() / 1000) - 86400; // API timestamps are seconds
-                    // Filter points newer than 24h
+                    const oneDayAgo = (Date.now() / 1000) - 86400;
                     const recentPoints = chart.global.filter(p => p.ts >= oneDayAgo);
                     if (recentPoints.length > 0) {
                         const sum = recentPoints.reduce((a, b) => a + b.hs, 0);
@@ -153,8 +150,7 @@ client.on('messageCreate', async (message) => {
                         { name: 'Total Hashes', value: (stats.global.totalHash || 0).toLocaleString(), inline: false },
                         { name: 'Valid Shares', value: (stats.global.validShares || 0).toLocaleString(), inline: true },
                         { name: 'Invalid Shares', value: (stats.global.invalidShares || 0).toLocaleString(), inline: true }
-                    )
-                    .setFooter({ text: `Addr: ${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}` });
+                    );
 
                 return message.channel.send({ embeds: [embed] });
             }
@@ -167,7 +163,6 @@ client.on('messageCreate', async (message) => {
                 const stats = await data.getMinerStats(addr);
                 if (!stats) return message.reply("⚠️ No active worker data found.");
 
-                // keys in stats are "global", "worker1", "worker2". Filter out global.
                 const workers = Object.keys(stats).filter(k => k !== 'global');
 
                 if (workers.length === 0) return message.reply("⚠️ No named workers active.");
@@ -178,8 +173,7 @@ client.on('messageCreate', async (message) => {
 
                 workers.forEach(w => {
                     const wStats = stats[w];
-                    const hash = wStats ? wStats.hash : 0;
-                    embed.addFields({ name: `👷 ${w}`, value: data.formatHash(hash), inline: true });
+                    embed.addFields({ name: `👷 ${w}`, value: data.formatHash(wStats.hash), inline: true });
                 });
 
                 return message.channel.send({ embeds: [embed] });
@@ -191,12 +185,14 @@ client.on('messageCreate', async (message) => {
                 if (!apiData || !apiData.pool_statistics) return message.reply("⚠️ Unable to fetch pool statistics.");
 
                 const stats = apiData.pool_statistics;
+                // Ensure hashrate is treated as a number
+                const hashrate = stats.hash ? Number(stats.hash) : 0;
 
                 const embed = new EmbedBuilder()
                     .setTitle('Pool Statistics')
                     .setColor(0xff6600)
                     .addFields(
-                        { name: 'Pool Hashrate', value: data.formatHash(stats.hash), inline: true },
+                        { name: 'Pool Hashrate', value: data.formatHash(hashrate), inline: true },
                         { name: 'Miners Connected', value: (stats.miners || 0).toString(), inline: true },
                         { name: 'Total Blocks Found', value: (stats.totalBlocksFound || 0).toString(), inline: true },
                         { name: 'Last Payment', value: apiData.last_payment ? new Date(apiData.last_payment * 1000).toLocaleString() : 'Never', inline: false }
@@ -209,7 +205,6 @@ client.on('messageCreate', async (message) => {
                 const net = await data.getNetworkStats();
                 if (!net) return message.reply("⚠️ Unable to fetch network statistics.");
 
-                // Monero target time is 120 seconds. Network Hashrate = Difficulty / 120
                 const netHash = net.difficulty / 120;
 
                 const embed = new EmbedBuilder()
