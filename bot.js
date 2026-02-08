@@ -1,5 +1,3 @@
---- START OF FILE bot.js ---
-
 const { Client, GatewayIntentBits, Partials, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 const config = require('./config.json');
@@ -59,7 +57,7 @@ async function blockMonitor() {
 // --- Event: Ready ---
 client.once('ready', () => {
     console.log(`Logged in as ${client.user.tag}`);
-    // Start block monitor loop based on config interval
+    // Start block monitor loop
     setInterval(blockMonitor, config.CHECK_INTERVAL || 60000);
 });
 
@@ -109,7 +107,7 @@ client.on('messageCreate', async (message) => {
                     return message.author.send("⚠️ Please use `!link` here in DMs to keep your address private.");
                 }
                 const addr = args[0];
-                // Basic XMR address validation (starts with 4 or 8, length 95 or 106)
+                // Basic XMR address validation (starts with 4 or 8)
                 if (!addr || !/^[48][0-9a-zA-Z]{94,105}$/.test(addr)) {
                     return message.reply("❌ Please provide a valid Monero address.");
                 }
@@ -137,7 +135,7 @@ client.on('messageCreate', async (message) => {
                 // Calculate 24h Average from chart data
                 let avgHash = 0;
                 if (chart && chart.global && chart.global.length > 0) {
-                    const oneDayAgo = (Date.now() / 1000) - 86400; // API often uses seconds for timestamps
+                    const oneDayAgo = (Date.now() / 1000) - 86400; // API timestamps are seconds
                     // Filter points newer than 24h
                     const recentPoints = chart.global.filter(p => p.ts >= oneDayAgo);
                     if (recentPoints.length > 0) {

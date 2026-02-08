@@ -1,5 +1,3 @@
---- START OF FILE data.js ---
-
 const axios = require('axios');
 const mysql = require('mysql2/promise');
 const config = require('./config.json');
@@ -21,7 +19,7 @@ const api = axios.create({
     timeout: 5000
 });
 
-// Helper: Format Hashrate (Fixed logic)
+// Helper: Format Hashrate
 function formatHash(h) {
     if (!h || isNaN(h)) return "0 H/s";
     const units = ["H/s", "KH/s", "MH/s", "GH/s"];
@@ -34,6 +32,8 @@ function formatHash(h) {
 }
 
 module.exports = {
+    formatHash,
+
     // --- Database Methods ---
     async getUserAddress(userId) {
         try {
@@ -93,8 +93,5 @@ module.exports = {
             const res = await api.get(`/miner/${addr}/chart/hashrate/allWorkers`);
             return res.data;
         } catch (e) { return null; }
-    },
-
-    // --- Helpers ---
-    formatHash
+    }
 };
