@@ -14,6 +14,14 @@ const client = new Client({
     partials: [Partials.Channel, Partials.Message, Partials.User]
 });
 
+// Helper: Format Seconds to Hours/Minutes
+function formatDuration(seconds) {
+    if (!seconds) return "0m";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return `${h}h ${m}m`;
+}
+
 // --- Block Monitor ---
 async function blockMonitor() {
     try {
@@ -22,11 +30,9 @@ async function blockMonitor() {
 
         const latestBlock = blocks[0];
 
-        // Check if block is new
         if (latestBlock.hash !== config.LAST_BLOCK_HASH) {
             const channel = await client.channels.fetch(config.CHANNEL_ID).catch(() => null);
             if (channel) {
-                // Calculate effort (Shares / Difficulty)
                 const effort = (latestBlock.shares / latestBlock.diff) * 100;
                 const color = effort <= 100 ? 0x00ff00 : 0xff0000;
 
@@ -53,14 +59,11 @@ async function blockMonitor() {
     }
 }
 
-// --- Event: Ready ---
 client.once('ready', () => {
     console.log(`Logged in as ${client.user.tag}`);
-    // Start block monitor loop
     setInterval(blockMonitor, config.CHECK_INTERVAL || 60000);
 });
 
-// --- Event: Member Join ---
 client.on('guildMemberAdd', async (member) => {
     try {
         const channel = await member.guild.channels.fetch(config.WELCOME_CHANNEL_ID).catch(() => null);
@@ -73,7 +76,6 @@ client.on('guildMemberAdd', async (member) => {
     }
 });
 
-// --- Event: Message/Command Handler ---
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.content.startsWith(config.PREFIX)) return;
 
@@ -82,8 +84,7 @@ client.on('messageCreate', async (message) => {
 
     try {
         switch (command) {
-
-            // 1. HELP COMMAND
+            // 1. HELP
             case 'help': {
                 const embed = new EmbedBuilder()
                     .setTitle('Mining Bot Commands')
@@ -99,7 +100,7 @@ client.on('messageCreate', async (message) => {
                 return message.channel.send({ embeds: [embed] });
             }
 
-            // 2. LINK COMMAND (DM Only)
+            // 2. LINK
             case 'link': {
                 if (message.guild) {
                     message.delete().catch(() => {});
@@ -113,13 +114,13 @@ client.on('messageCreate', async (message) => {
                 return message.reply("✅ Address linked successfully! You can now use `!hashrate` and `!workers`.");
             }
 
-            // 3. UNLINK COMMAND (DM Only)
+            // 3. UNLINK
             case 'unlink': {
                 await data.unlinkAddress(message.author.id);
                 return message.reply("✅ Address unlinked from your Discord account.");
             }
 
-            // 4. HASHRATE COMMAND
+            // 4. HASHRATE
             case 'hashrate':
             case 'stats': {
                 const addr = await data.getUserAddress(message.author.id);
@@ -130,7 +131,6 @@ client.on('messageCreate', async (message) => {
 
                 if (!stats || !stats.global) return message.reply("⚠️ No miner data found. Check if your miner is active.");
 
-                // Calculate 24h Average
                 let avgHash = 0;
                 if (chart && chart.global && chart.global.length > 0) {
                     const oneDayAgo = (Date.now() / 1000) - 86400;
@@ -155,7 +155,7 @@ client.on('messageCreate', async (message) => {
                 return message.channel.send({ embeds: [embed] });
             }
 
-            // 5. WORKERS COMMAND
+            // 5. WORKERS
             case 'workers': {
                 const addr = await data.getUserAddress(message.author.id);
                 if (!addr) return message.reply("⚠️ No address found. Use `!link <address>` in DMs first.");
@@ -181,26 +181,50 @@ client.on('messageCreate', async (message) => {
 
             // 6. POOL COMMAND
             case 'pool': {
+                // Fetch Pool Stats AND Network Stats (needed for Effort calc)
                 const apiData = await data.getPoolStats();
+                const netData = await data.getNetworkStats();
+
                 if (!apiData || !apiData.pool_statistics) return message.reply("⚠️ Unable to fetch pool statistics.");
 
-                const stats = apiData.pool_statistics;
-                // Ensure hashrate is treated as a number
-                const hashrate = stats.hash ? Number(stats.hash) : 0;
+                const s = apiData.pool_statistics;
+                const difficulty = netData ? netData.difficulty : 1;
+
+                // Calculate Effort: (RoundHashes / NetworkDifficulty) * 100
+                const roundHashes = s.roundHashes || 0;
+                const effort = (roundHashes / difficulty) * 100;
+
+                // Color Logic: Green if <= 100% (Lucky), Red if > 100% (Unlucky)
+                const embedColor = effort <= 100 ? 0x00ff00 : 0xff0000;
 
                 const embed = new EmbedBuilder()
-                    .setTitle('Pool Statistics')
-                    .setColor(0xff6600)
+                    .setTitle('Global Pool Statistics')
+                    .setColor(embedColor)
                     .addFields(
-                        { name: 'Pool Hashrate', value: data.formatHash(hashrate), inline: true },
-                        { name: 'Miners Connected', value: (stats.miners || 0).toString(), inline: true },
-                        { name: 'Total Blocks Found', value: (stats.totalBlocksFound || 0).toString(), inline: true },
-                        { name: 'Last Payment', value: apiData.last_payment ? new Date(apiData.last_payment * 1000).toLocaleString() : 'Never', inline: false }
-                    );
+                        // Row 1: Vital Stats
+                        { name: 'Pool Hashrate', value: data.formatHash(s.hashRate), inline: true },
+                        { name: 'Miners', value: (s.miners || 0).toString(), inline: true },
+                        { name: 'XMR Price', value: s.price && s.price.usd ? `$${s.price.usd.toFixed(2)}` : 'N/A', inline: true },
+
+                        // Row 2: Mining Status
+                        { name: 'Current Effort', value: `${effort.toFixed(2)}%`, inline: true },
+                        { name: 'PPLNS Window', value: formatDuration(s.pplnsWindowTime), inline: true },
+                        { name: 'Last Block Found', value: s.lastBlockFoundTime ? `<t:${s.lastBlockFoundTime}:R>` : 'Never', inline: true },
+
+                        // Row 3: History & Payments
+                        { name: 'Total Blocks', value: (s.totalBlocksFound || 0).toLocaleString(), inline: true },
+                        { name: 'Total Paid', value: (s.totalMinersPaid || 0).toLocaleString() + ' Miners', inline: true },
+                        { name: 'Total Payments', value: (s.totalPayments || 0).toLocaleString(), inline: true },
+
+                        // Row 4: Last Payment Footer
+                        { name: 'Last Payment', value: apiData.last_payment ? `<t:${apiData.last_payment}:F>` : 'Never', inline: false }
+                    )
+                    .setTimestamp();
+
                 return message.channel.send({ embeds: [embed] });
             }
 
-            // 7. NETWORK COMMAND
+            // 7. NETWORK
             case 'network': {
                 const net = await data.getNetworkStats();
                 if (!net) return message.reply("⚠️ Unable to fetch network statistics.");
