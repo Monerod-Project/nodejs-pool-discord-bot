@@ -16,7 +16,7 @@ const db = mysql.createPool({
 // API Instance
 const api = axios.create({
     baseURL: `https://${config.API_DOMAIN}`,
-    timeout: 5000
+    timeout: 10000 // Increased timeout for heavier calculations
 });
 
 // Helper: Format Hashrate
@@ -48,6 +48,17 @@ module.exports = {
         }
     },
 
+    async getAllLinkedUsers() {
+        try {
+            const query = `SELECT ${config.DB.discord_col} as discordId, ${config.DB.address_col} as addr FROM ${config.DB.table}`;
+            const [rows] = await db.execute(query);
+            return rows;
+        } catch (error) {
+            console.error("DB Error (getAllLinkedUsers):", error.message);
+            return [];
+        }
+    },
+
     async linkAddress(userId, address) {
         const query = `INSERT INTO ${config.DB.table} (${config.DB.discord_col}, ${config.DB.address_col})
                        VALUES (?, ?)
@@ -64,6 +75,13 @@ module.exports = {
     async getPoolBlocks() {
         try {
             const res = await api.get('/pool/blocks?limit=5');
+            return res.data;
+        } catch (e) { return []; }
+    },
+
+    async getPoolPayments() {
+        try {
+            const res = await api.get('/pool/payments?limit=5');
             return res.data;
         } catch (e) { return []; }
     },
