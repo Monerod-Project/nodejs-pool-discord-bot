@@ -125,7 +125,7 @@ client.on('guildMemberAdd', async (member) => {
     try {
         const channel = await member.guild.channels.fetch(config.WELCOME_CHANNEL_ID).catch(() => null);
         if (channel) {
-            const welcomeMsg = await channel.send(`Welcome to Monerod, ${member}! Glad to have you here. 🚀 (!help if you need me.)`);
+            const welcomeMsg = await channel.send(`Welcome to the pool, ${member}! Glad to have you here. 🚀`);
             await welcomeMsg.react('👋');
         }
     } catch (err) {
@@ -149,11 +149,11 @@ client.on('messageCreate', async (message) => {
                     .addFields(
                         { name: '!link <addr>', value: 'Connect your XMR address (DM only)' },
                         { name: '!unlink', value: 'Remove your linked address (DM only)' },
+                        { name: '!mine', value: 'Connection details & setup' },
                         { name: '!hashrate', value: 'Show current stats vs 24h average' },
                         { name: '!balance', value: 'DM your Pending and Paid balances' },
                         { name: '!workers', value: 'List your active workers' },
                         { name: '!profit <hashrate>', value: 'Estimate earnings (e.g. !profit 5kh)' },
-                        { name: '!leaderboard', value: 'Top 20 Loyal Miners' },
                         { name: '!pool', value: 'Global pool statistics' },
                         { name: '!network', value: 'Monero network statistics' }
                     )
@@ -193,10 +193,10 @@ client.on('messageCreate', async (message) => {
                 const addr = await data.getUserAddress(message.author.id);
                 if (!addr) return message.reply("⚠️ No address found. Use `!link <address>` in DMs first.");
 
-                const stats = await data.getMinerStats(addr);
+                const stats = await data.getMinerBasicStats(addr);
                 const chart = await data.getMinerChart(addr);
 
-                if (!stats || !stats.global) return message.reply("⚠️ No miner data found. Check if your miner is active.");
+                if (!stats) return message.reply("⚠️ No miner data found. Check if your miner is active.");
 
                 let avgHash = 0;
                 if (chart && chart.global && chart.global.length > 0) {
@@ -212,11 +212,11 @@ client.on('messageCreate', async (message) => {
                     .setTitle('Your Miner Performance')
                     .setColor(0xff6600)
                     .addFields(
-                        { name: 'Current Hashrate', value: data.formatHash(stats.global.hash), inline: true },
+                        { name: 'Current Hashrate', value: data.formatHash(stats.hash), inline: true },
                         { name: '24h Average', value: data.formatHash(avgHash), inline: true },
-                        { name: 'Total Hashes', value: (stats.global.totalHashes || 0).toLocaleString(), inline: false },
-                        { name: 'Valid Shares', value: (stats.global.validShares || 0).toLocaleString(), inline: true },
-                        { name: 'Invalid Shares', value: (stats.global.invalidShares || 0).toLocaleString(), inline: true }
+                        { name: 'Total Hashes', value: (stats.totalHashes || 0).toLocaleString(), inline: false },
+                        { name: 'Valid Shares', value: (stats.validShares || 0).toLocaleString(), inline: true },
+                        { name: 'Invalid Shares', value: (stats.invalidShares || 0).toLocaleString(), inline: true }
                     )
                     .setTimestamp();
 
@@ -228,9 +228,10 @@ client.on('messageCreate', async (message) => {
                 const addr = await data.getUserAddress(message.author.id);
                 if (!addr) return message.reply("⚠️ No address found. Use `!link <address>` in DMs first.");
 
-                const stats = await data.getMinerStats(addr);
+                const stats = await data.getWorkerStats(addr);
                 if (!stats) return message.reply("⚠️ No active worker data found.");
 
+                // "global" key usually exists in this endpoint too, filter it out
                 const workers = Object.keys(stats).filter(k => k !== 'global');
 
                 if (workers.length === 0) return message.reply("⚠️ No named workers active.");
@@ -254,12 +255,12 @@ client.on('messageCreate', async (message) => {
                 const addr = await data.getUserAddress(message.author.id);
                 if (!addr) return message.reply("⚠️ No address found. Use `!link <address>` in DMs first.");
 
-                const stats = await data.getMinerStats(addr);
-                if (!stats || !stats.global) return message.reply("⚠️ No miner data found yet.");
+                const stats = await data.getMinerBasicStats(addr);
+                if (!stats) return message.reply("⚠️ No miner data found yet.");
 
-                const paid = (stats.global.amtPaid || 0) / 1e12;
-                const due = (stats.global.amtDue || 0) / 1e12;
-                const txCount = stats.global.txnCount || 0;
+                const paid = (stats.amtPaid || 0) / 1e12;
+                const due = (stats.amtDue || 0) / 1e12;
+                const txCount = stats.txnCount || 0;
 
                 const embed = new EmbedBuilder()
                     .setTitle('💰 Your Wallet Balance')
@@ -291,92 +292,66 @@ client.on('messageCreate', async (message) => {
                 if (!userHash) return message.reply("❌ Invalid format. Use format like `500h`, `5kh`, `1mh`.");
 
                 const net = await data.getNetworkStats();
-                if (!net) return message.reply("⚠️ Unable to fetch network stats for calculation.");
+                const pool = await data.getPoolStats();
+
+                if (!net || !pool) return message.reply("⚠️ Unable to fetch stats for calculation.");
 
                 // Constants
                 const BLOCKS_PER_DAY = 720; // ~2 min blocks
                 const reward = net.value / 1e12;
                 const diff = net.difficulty;
+                const poolHash = pool.pool_statistics.hashRate || 1;
 
-                // Formula: (UserHash / Difficulty) * BlockReward * BlocksPerDay
+                // Calculation
+                // 1. Daily Earnings based on Network Difficulty (Theoretical Max)
                 const dailyXMR = (userHash / diff) * reward * BLOCKS_PER_DAY;
                 const weeklyXMR = dailyXMR * 7;
                 const monthlyXMR = dailyXMR * 30;
 
+                // 2. Pool Share
+                const shareOfPool = (userHash / poolHash) * 100;
+
                 const embed = new EmbedBuilder()
                     .setTitle(`💸 Estimated Earnings for ${input.toUpperCase()}`)
                     .setColor(0x85bb65)
-                    .setDescription(`Estimates based on current Network Difficulty: **${diff.toLocaleString()}**`)
                     .addFields(
                         { name: 'Daily', value: `${dailyXMR.toFixed(5)} XMR`, inline: true },
                         { name: 'Weekly', value: `${weeklyXMR.toFixed(5)} XMR`, inline: true },
-                        { name: 'Monthly', value: `${monthlyXMR.toFixed(5)} XMR`, inline: true }
+                        { name: 'Monthly', value: `${monthlyXMR.toFixed(5)} XMR`, inline: true },
+                        { name: 'Pool Dominance', value: `${shareOfPool.toFixed(4)}%`, inline: false }
                     )
-                    .setFooter({ text: "Electricity costs not factored in." })
+                    .setFooter({ text: "Calculated via Network Difficulty. Fees/Electricity not included." })
                     .setTimestamp();
 
                 return message.channel.send({ embeds: [embed] });
             }
 
-            // 8. LEADERBOARD
-            case 'leaderboard': {
-                const linkedUsers = await data.getAllLinkedUsers();
-                if (linkedUsers.length === 0) return message.reply("No miners have linked their Discord accounts yet.");
-
-                const sentMsg = await message.channel.send("🔄 calculating leaderboard...");
-
-                const minerData = [];
-
-                // Fetch data for all linked users
-                // Note: In a massive production bot, this should be cached or batched.
-                for (const user of linkedUsers) {
-                    const stats = await data.getMinerStats(user.addr);
-                    if (stats && stats.global) {
-                        minerData.push({
-                            id: user.discordId,
-                            totalHashes: stats.global.totalHashes || 0,
-                            currentHash: stats.global.hash || 0
-                        });
-                    }
-                }
-
-                // Sort by Total Hashes (Loyalty + Contribution combined)
-                minerData.sort((a, b) => b.totalHashes - a.totalHashes);
-
-                // Top 20
-                const top20 = minerData.slice(0, 20);
-
+            // 8. MINE
+            case 'mine': {
                 const embed = new EmbedBuilder()
-                    .setTitle('🏆 Top 20 Loyal Miners')
-                    .setColor(0xFFD700)
-                    .setDescription("Ranked by Total Hashes Submitted (Loyalty + Contribution).\n*Only includes users who have linked their account.*");
-
-                let description = "";
-                let rank = 1;
-
-                for (const miner of top20) {
-                    let memberName = "Unknown Miner";
-                    try {
-                        // Attempt to fetch member from guild if command run in guild
-                        if (message.guild) {
-                            const member = await message.guild.members.fetch(miner.id).catch(() => null);
-                            if (member) memberName = member.user.username;
-                        } else {
-                            // If DM, try client fetch
-                            const user = await client.users.fetch(miner.id).catch(() => null);
-                            if (user) memberName = user.username;
+                    .setTitle('🛠️ How to Mine')
+                    .setColor(0xFFA500)
+                    .setDescription('Start mining with us in 2 easy steps!')
+                    .addFields(
+                        {
+                            name: '1. Download XMRig',
+                            value: 'Download [XMRig-md](https://github.com/Monerod-Project/xmrig-md/releases) or [XMRig](https://github.com/xmrig/xmrig/releases).'
+                        },
+                        {
+                            name: '2. Configure',
+                            value: 'Run as Administrator/Sudo with this config:'
+                        },
+                        {
+                            name: 'Config Snippet',
+                            value: "```json\n\"url\": \"mine.monerod.org:4444\",\n\"user\": \"YOUR_WALLET_ADDRESS\",\n\"pass\": \"WORKER_NAME\",\n\"tls\": true\n```"
+                        },
+                        {
+                            name: 'Non-TLS Port',
+                            value: '`5555`'
                         }
-                    } catch (e) { }
+                    )
+                    .setTimestamp();
 
-                    const readableTotal = (miner.totalHashes / 1e9).toFixed(2) + " G"; // Billions of hashes
-                    description += `**#${rank}** ${memberName} — **${readableTotal}** hashes \n`;
-                    rank++;
-                }
-
-                embed.setDescription(embed.data.description + "\n\n" + description);
-                embed.setTimestamp();
-
-                await sentMsg.delete().catch(() => {});
                 return message.channel.send({ embeds: [embed] });
             }
 

@@ -16,7 +16,7 @@ const db = mysql.createPool({
 // API Instance
 const api = axios.create({
     baseURL: `https://${config.API_DOMAIN}`,
-    timeout: 10000 // Increased timeout for heavier calculations
+    timeout: 10000
 });
 
 // Helper: Format Hashrate
@@ -45,17 +45,6 @@ module.exports = {
         } catch (error) {
             console.error("DB Error (getUserAddress):", error.message);
             return null;
-        }
-    },
-
-    async getAllLinkedUsers() {
-        try {
-            const query = `SELECT ${config.DB.discord_col} as discordId, ${config.DB.address_col} as addr FROM ${config.DB.table}`;
-            const [rows] = await db.execute(query);
-            return rows;
-        } catch (error) {
-            console.error("DB Error (getAllLinkedUsers):", error.message);
-            return [];
         }
     },
 
@@ -100,7 +89,16 @@ module.exports = {
         } catch (e) { return null; }
     },
 
-    async getMinerStats(addr) {
+    // Gets global stats for the address (Balance, Total Hashes)
+    async getMinerBasicStats(addr) {
+        try {
+            const res = await api.get(`/miner/${addr}/stats`);
+            return res.data;
+        } catch (e) { return null; }
+    },
+
+    // Gets detailed list of workers
+    async getWorkerStats(addr) {
         try {
             const res = await api.get(`/miner/${addr}/stats/allWorkers`);
             return res.data;
