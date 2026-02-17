@@ -121,11 +121,13 @@ client.once('ready', () => {
     setInterval(paymentMonitor, intervalTime);
 });
 
+// --- Welcome Event ---
 client.on('guildMemberAdd', async (member) => {
     try {
         const channel = await member.guild.channels.fetch(config.WELCOME_CHANNEL_ID).catch(() => null);
         if (channel) {
-            const welcomeMsg = await channel.send(`Welcome to the pool, ${member}! Glad to have you here. 🚀`);
+            // Update: Added call out to !help command
+            const welcomeMsg = await channel.send(`Welcome to the pool, ${member}! Glad to have you here. 🚀\nUse \`${config.PREFIX}help\` to see available commands.`);
             await welcomeMsg.react('👋');
         }
     } catch (err) {
@@ -150,12 +152,14 @@ client.on('messageCreate', async (message) => {
                         { name: '!link <addr>', value: 'Connect your XMR address (DM only)' },
                         { name: '!unlink', value: 'Remove your linked address (DM only)' },
                         { name: '!mine', value: 'Connection details & setup' },
+                        { name: '!node', value: 'Remote node connection info' },
                         { name: '!hashrate', value: 'Show current stats vs 24h average' },
                         { name: '!balance', value: 'DM your Pending and Paid balances' },
                         { name: '!workers', value: 'List your active workers' },
                         { name: '!profit <hashrate>', value: 'Estimate earnings (e.g. !profit 5kh)' },
                         { name: '!pool', value: 'Global pool statistics' },
-                        { name: '!network', value: 'Monero network statistics' }
+                        { name: '!network', value: 'Monero network statistics' },
+                        { name: '!donate', value: 'Support the project' }
                     )
                     .setTimestamp();
                 return message.channel.send({ embeds: [embed] });
@@ -231,7 +235,6 @@ client.on('messageCreate', async (message) => {
                 const stats = await data.getWorkerStats(addr);
                 if (!stats) return message.reply("⚠️ No active worker data found.");
 
-                // "global" key usually exists in this endpoint too, filter it out
                 const workers = Object.keys(stats).filter(k => k !== 'global');
 
                 if (workers.length === 0) return message.reply("⚠️ No named workers active.");
@@ -311,13 +314,14 @@ client.on('messageCreate', async (message) => {
                 // 2. Pool Share
                 const shareOfPool = (userHash / poolHash) * 100;
 
+                // Update: Increased precision to .toFixed(8) for smaller hashrates to avoid "0.00000"
                 const embed = new EmbedBuilder()
                     .setTitle(`💸 Estimated Earnings for ${input.toUpperCase()}`)
                     .setColor(0x85bb65)
                     .addFields(
-                        { name: 'Daily', value: `${dailyXMR.toFixed(5)} XMR`, inline: true },
-                        { name: 'Weekly', value: `${weeklyXMR.toFixed(5)} XMR`, inline: true },
-                        { name: 'Monthly', value: `${monthlyXMR.toFixed(5)} XMR`, inline: true },
+                        { name: 'Daily', value: `${dailyXMR.toFixed(8)} XMR`, inline: true },
+                        { name: 'Weekly', value: `${weeklyXMR.toFixed(8)} XMR`, inline: true },
+                        { name: 'Monthly', value: `${monthlyXMR.toFixed(8)} XMR`, inline: true },
                         { name: 'Pool Dominance', value: `${shareOfPool.toFixed(4)}%`, inline: false }
                     )
                     .setFooter({ text: "Calculated via Network Difficulty. Fees/Electricity not included." })
@@ -355,7 +359,53 @@ client.on('messageCreate', async (message) => {
                 return message.channel.send({ embeds: [embed] });
             }
 
-            // 9. POOL COMMAND
+            // 9. NODE (NEW COMMAND)
+            case 'node': {
+                const embed = new EmbedBuilder()
+                    .setTitle('🌍 Remote Node Details')
+                    .setColor(0x009688)
+                    .setDescription('Use our remote node to sync wallets without downloading the blockchain.')
+                    .addFields(
+                        { name: 'Host', value: '`node.monerod.org`', inline: true },
+                        { name: 'Port', value: '`443`', inline: true },
+                        { name: 'TLS', value: 'Yes', inline: true },
+                        { name: '⚠️ NOTE', value: 'Please only use our node if you cannot host your own local copy (which benefits the network).' }
+                    )
+                    .setTimestamp();
+
+                return message.channel.send({ embeds: [embed] });
+            }
+
+            // 10. DONATE (NEW COMMAND)
+            case 'donate': {
+                const embed = new EmbedBuilder()
+                    .setTitle('💖 Support the Pool')
+                    .setColor(0xFF69B4)
+                    .setDescription('There are several ways you can support the project:')
+                    .addFields(
+                        {
+                            name: '1. General Donation (XMR)',
+                            value: 'Direct donation address:'
+                        },
+                        {
+                            name: '\u200B', // Empty name for code block formatting
+                            value: '```8B6nMw5K64bKcejt17PfBsjMpANKuRsBU3FeStsru5fTZeCwVqQVebUfwjPeoM8WshiAg1a5x85RgYx2s3JzTRLsKdK1Q9C```'
+                        },
+                        {
+                            name: '2. Pool Boost (XMRig-MD)',
+                            value: 'Use [XMRig-MD](https://github.com/Monerod-Project/xmrig-md/releases) to automatically contribute to pool boost.'
+                        },
+                        {
+                            name: '3. Discord Perks (Tip.cc)',
+                            value: 'Use Tip.cc to buy Donator roles!\n• Use `$store` to view available items.\n• Use `$store buy <item>` to purchase.\n• Use `$help` for more info on depositing funds.'
+                        }
+                    )
+                    .setTimestamp();
+
+                return message.channel.send({ embeds: [embed] });
+            }
+
+            // 11. POOL COMMAND
             case 'pool': {
                 const apiData = await data.getPoolStats();
                 const netData = await data.getNetworkStats();
@@ -369,13 +419,21 @@ client.on('messageCreate', async (message) => {
                 const effort = (roundHashes / difficulty) * 100;
                 const embedColor = effort <= 100 ? 0x00ff00 : 0xff0000;
 
+                // Update: Format price list for USD, EUR, BTC
+                const prices = s.price || {};
+                const priceString = [
+                    `🇺🇸 USD: $${(prices.usd || 0).toFixed(2)}`,
+                    `🇪🇺 EUR: €${(prices.eur || 0).toFixed(2)}`,
+                    `₿ BTC: ${(prices.btc || 0).toFixed(8)}`
+                ].join('\n');
+
                 const embed = new EmbedBuilder()
                     .setTitle('Global Pool Statistics')
                     .setColor(embedColor)
                     .addFields(
                         { name: 'Pool Hashrate', value: data.formatHash(s.hashRate), inline: true },
                         { name: 'Miners', value: (s.miners || 0).toString(), inline: true },
-                        { name: 'XMR Price', value: s.price && s.price.usd ? `$${s.price.usd.toFixed(2)}` : 'N/A', inline: true },
+                        { name: 'Market Price', value: priceString, inline: true },
                         { name: 'Current Effort', value: `${effort.toFixed(2)}%`, inline: true },
                         { name: 'PPLNS Window', value: formatDuration(s.pplnsWindowTime), inline: true },
                         { name: 'Last Block Found', value: s.lastBlockFoundTime ? `<t:${s.lastBlockFoundTime}:R>` : 'Never', inline: true },
@@ -389,7 +447,7 @@ client.on('messageCreate', async (message) => {
                 return message.channel.send({ embeds: [embed] });
             }
 
-            // 10. NETWORK
+            // 12. NETWORK
             case 'network': {
                 const net = await data.getNetworkStats();
                 if (!net) return message.reply("⚠️ Unable to fetch network statistics.");
